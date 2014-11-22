@@ -1,0 +1,178 @@
+Human activity Recognition (Practical machine learning Project)
+========================================================
+In this project, we will explore the Weight Lifting Exercises dataset to investigate "how (well)" an activity was performed by the wearer.Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). 
+More information is available from the website [http://groupware.les.inf.puc-rio.br/har] (http://groupware.les.inf.puc-rio.br/har)(see the section on the Weight Lifting Exercise Dataset).
+
+  Main goals of this project are:
+
+1. Predict the manner in which they did the exercise depicted by the *classe* variable in training dataset.
+
+2. Build a prediction model using different features, cross-validation technique and machine learning algorithm.
+
+3. Calculate out of sample error.
+
+4. Use the prediction model to predict 20 different test cases provided.
+
+### Getting Data
+ The training data for this project are available here:[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data are available here:[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+```{r setoptions,echo=FALSE}
+opts_chunk$set(warning=FALSE)
+```
+
+```{r}
+train_url<-"http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url<-"http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+if(!file.exists("pml_training.csv"))
+  download.file(train_url,dest="pml_training.csv")
+if(!file.exists("pml_testing.csv"))
+  download.file(test_url,dest="pml_testing.csv")
+
+har_train<-read.csv("pml_training.csv", stringsAsFactors=FALSE,na.strings = c("NA", ""))
+dim(har_train)
+har_train$classe<-as.factor(har_train$classe)
+har_test<-read.csv("pml_testing.csv", stringsAsFactors=FALSE)
+dim(har_test)
+```
+
+### Preprocessing data
+- **Remove variables those have too many NA values**
+```{r }
+na_col_sum<-colSums(is.na(har_train))
+table(na_col_sum)
+```
+Looking at above values it is clear that 60 variables have no NA values while the rest 100 have NA values for almost all the rows of the dataset, so we are going to ignore them using the following code .
+
+```{r}
+ignore_col <- na_col_sum >= 19000
+tidy_har_train<-har_train[!ignore_col]
+names(tidy_har_train)
+sum(is.na(tidy_har_train))
+```
+Now the tidy dataset don't have any NA values.   
+
+- **Remove unrelevant variables**    
+There are some unrelated variables those can be removed as they are unlikely to be have any relationship with dependent variable(classe).
+```{r}
+remove_var = c('X', 'user_name', 'raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp', 'new_window', 'num_window')
+tidy_har_train <- tidy_har_train[, -which(names(tidy_har_train) %in% remove_var)]
+dim(tidy_har_train)
+```
+Therefore, data can be now used for some exploratory analysis and prediction model.   
+
+- **Check the variables that have extremely low variance (using nearZeroVar() of caret package )**
+```{r}
+library(caret)
+# only numeric variabls can be evaluated in this way.
+nonZeroMetric<-nearZeroVar(tidy_har_train,saveMetrics=TRUE)
+nzv_har_train = tidy_har_train[,nonZeroMetric[, 'nzv']==0]
+dim(nzv_har_train)
+```
+
+- **Removing highly correlated variables**
+We may want to remove highly correlated predictors from our analysis and replace them with weighted combinations of predictors. This may allow a more complete capture of the information available.
+```{r figure1,fig.height=10,fig.width=10}
+library(corrplot)
+corMat <- cor(nzv_har_train[, -length(nzv_har_train)])
+corrplot(corMat, order = "FPC", method = "color", type = "lower", tl.cex = 0.7) 
+```
+This grid shows the correlation between pairs of the predictors in our dataset. From a high-level perspective darker blue and darker red squares indicate high positive and high negative correlations, respectively.
+  We are going to remove those variable which have high correlation to reduce noise.we can use PCA(Principal component analysis) of caret but doing it in following way to make it easier to interprete predictors. 
+  
+```{r}
+removecor = findCorrelation(corMat, cutoff = .9)
+final_har_train = nzv_har_train[,-removecor]
+dim(final_har_train)
+```
+### Data partitioning for cross-validation
+We partition the nza_har_train dataset into training_har(60%) and validation_har(40%) data sets for cross validation
+
+```{r}
+inTrain<-createDataPartition(y=final_har_train$classe,p=0.6,list=FALSE)
+training_har<-final_har_train[inTrain,]
+validation_har<-final_har_train[-inTrain,]
+dim(training_har); dim(validation_har)
+```
+
+### Model building
+In  this section, we will build machine learning models for predicting the classe value based on the other features of the dataset.
+
+#### Regression Tree
+First. let's start with regression trees using features of training_har dataset as it's easy to interprete.
+```{r}
+treemodFit<-train(classe~.,method="rpart",data=training_har)
+print(treemodFit$finalModel)
+```
+Let's plot treemodfit$finalmodel using fancyRpartPlot of *rattle* package
+```{r figure2,fig.height=10,fig.width=10}
+library(rattle)
+fancyRpartPlot(treemodFit$finalModel)
+```
+##### cross validation of regression tree model
+We are going to check the performance of the tree on the validation_har data by cross validation.
+```{r}
+tree_prediction=predict(treemodFit,validation_har[,-length(validation_har)])
+confusionMatrix(tree_prediction,validation_har$classe)
+```
+The accuracy o.49 is too low.The single tree is not good enough, so we are going to use bootstrap to improve the accuracy. We are going to try random forests.
+#### Random Forest
+Random forests build lots of bushy trees, and then average them to reduce the variance.
+
+ Let's build our model using the Random Forest machine learning technique.
+```{r cache=TRUE,fig.height=10,fig.width=16}
+rfmodFit<-train(classe~.,data=training_har,method="rf",trControl = trainControl(method = "cv",number = 4),importance=TRUE)
+
+# Result of the random forest model
+print(rfmodFit)
+VarImpPlot(rfmodFit$finalModel,)
+```   
+
+we can see which variables have higher impact on the prediction.
+#### In sample error for random forest model
+Now we calculate the **in sample** accuracy which is the prediction accuracy of our model on the training data set.
+```{r}
+train_prediction<-predict(rfmodFit,training_har[,-length(training_har)])
+inSampleAccuracy<-sum(train_prediction==training_har$classe)/length(train_prediction)
+inSampleAccuracy
+inSampleError<- 1 - inSampleAccuracy
+inSampleError
+ein<-inSampleError * 100
+paste0("In sample error estimation: ", round(ein, digits = 2), "%")
+
+```
+### Out of Sample Error for random forest model
+Now we'll estimate out of Sample error on cv_testing_har.
+```{r}
+validation_prediction<-predict(rfmodFit,validation_har[,-length(validation_har)])
+outOfSampleAccuracy<-sum(validation_prediction==validation_har$classe)/length(validation_prediction)
+outOfSampleAccuracy
+outOfSampleError<- 1- outOfSampleAccuracy
+outOfSampleError
+eout <- outOfSampleError * 100
+paste0("Out of sample error estimation: ", round(eout, digits = 2), "%")
+```
+So accuracy of our randomforest model is `r outOfSampleAccuracy
+`% which's very good.It's a bit slow but we've to trade this  off for accuracy of this model.Out of sample  error`r eout`% is very small as expected. 
+### Prediction Assignment  
+In this section, we apply the above  random forest machine learning algorithm to each of the 20 test cases in the testing data set provided.
+```{r}
+answers <- predict(rfmodFit, har_test)
+answers <- as.character(answers)
+answers
+```
+#### Write up for submission
+Finally, we write the answers to files as specified by the course instructor using the following code segment.
+
+```{r}
+pml_write_files = function(x) {
+    n = length(x)
+    for (i in 1:n) {
+        filename = paste0("problem_id_", i, ".txt")
+        write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, 
+            col.names = FALSE)
+    }
+}
+
+pml_write_files(answers)
+```

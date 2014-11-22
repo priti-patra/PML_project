@@ -1,0 +1,17 @@
+base
+caret
+corrplot
+datasets
+ggplot2
+graphics
+grDevices
+knitr
+lattice
+methods
+randomForest
+rattle
+RColorBrewer
+rpart
+rpart.plot
+stats
+utils
