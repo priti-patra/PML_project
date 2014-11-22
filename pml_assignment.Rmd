@@ -152,8 +152,8 @@ outOfSampleError
 eout <- outOfSampleError * 100
 paste0("Out of sample error estimation: ", round(eout, digits = 2), "%")
 ```
-So accuracy of our randomforest model is `r outOfSampleAccuracy
-`% which's very good.It's a bit slow but we've to trade this  off for accuracy of this model.Out of sample  error'r eout`% is very small as expected. 
+So accuracy of our randomforest model is `r outOfSampleAccuracy*100
+`% which's very good.It's a bit slow but we've to trade this  off for accuracy of this model.Out of sample  error`r eout`% is very small as expected. 
 ### Prediction Assignment  
 In this section, we apply the above  random forest machine learning algorithm to each of the 20 test cases in the testing data set provided.
 ```{r}
